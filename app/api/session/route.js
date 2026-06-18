@@ -1,8 +1,10 @@
 // app/api/session/route.js
-// ✅ بيتحكم في الجلسات — جهاز واحد بس في نفس الوقت
+// ✅ بيستخدم Firebase REST API مباشرة — مش محتاج firebase-admin
 export const runtime = "nodejs";
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebase-admin";
+
+const PROJECT_ID = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+const FIRESTORE_URL = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents/sessions`;
 
 // POST: تسجيل جلسة جديدة عند Login
 export async function POST(request) {
@@ -11,10 +13,19 @@ export async function POST(request) {
     if (!phone || !sessionId) {
       return NextResponse.json({ error: "Missing data" }, { status: 400 });
     }
-    await db.collection("sessions").doc(phone).set({
-      sessionId,
-      loginAt: new Date().toISOString(),
+
+    const url = `${FIRESTORE_URL}/${encodeURIComponent(phone)}`;
+    await fetch(url, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fields: {
+          sessionId: { stringValue: sessionId },
+          loginAt: { stringValue: new Date().toISOString() },
+        },
+      }),
     });
+
     return NextResponse.json({ success: true });
   } catch (e) {
     console.error(e);
@@ -31,12 +42,17 @@ export async function GET(request) {
     if (!phone || !sessionId) {
       return NextResponse.json({ valid: false }, { status: 400 });
     }
-    const snap = await db.collection("sessions").doc(phone).get();
-    if (!snap.exists) {
+
+    const url = `${FIRESTORE_URL}/${encodeURIComponent(phone)}`;
+    const res = await fetch(url);
+
+    if (!res.ok) {
       return NextResponse.json({ valid: false });
     }
-    const data = snap.data();
-    return NextResponse.json({ valid: data.sessionId === sessionId });
+
+    const data = await res.json();
+    const storedSessionId = data?.fields?.sessionId?.stringValue;
+    return NextResponse.json({ valid: storedSessionId === sessionId });
   } catch (e) {
     console.error(e);
     return NextResponse.json({ valid: false }, { status: 500 });
@@ -48,10 +64,12 @@ export async function DELETE(request) {
   try {
     const { phone } = await request.json();
     if (phone) {
-      await db.collection("sessions").doc(phone).delete();
+      const url = `${FIRESTORE_URL}/${encodeURIComponent(phone)}`;
+      await fetch(url, { method: "DELETE" });
     }
     return NextResponse.json({ success: true });
   } catch {
     return NextResponse.json({ success: false }, { status: 500 });
   }
-}
+  }
+    
