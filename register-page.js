@@ -1,13 +1,12 @@
-// app/login/page.js
-// تسجيل الدخول + نسيت كلمة السر — ملف واحد متكامل: فيه التصميم والناف بار والفوتر وكل المنطق
+// app/register/page.js
+// إنشاء حساب — ملف واحد متكامل: فيه التصميم والناف بار والفوتر وكل المنطق
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { db, auth } from "@/lib/firebase";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
-import { RecaptchaVerifier, signInWithPhoneNumber } from "firebase/auth";
+import { db } from "@/lib/firebase";
+import { doc, setDoc, getDoc } from "firebase/firestore";
 
 const GLOBAL_CSS = `
 a { color: inherit; text-decoration: none; }
@@ -436,14 +435,6 @@ a { color: inherit; text-decoration: none; }
 
 `;
 
-// تحويل رقم مصري محلي (01xxxxxxxxx) إلى الصيغة الدولية المطلوبة لإرسال SMS (+20...)
-function toE164(localPhone) {
-  let p = localPhone.trim();
-  if (p.startsWith("+")) return p;
-  if (p.startsWith("0")) p = p.slice(1);
-  return "+20" + p;
-}
-
 const EyeIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
@@ -531,12 +522,11 @@ function Footer() {
   );
 }
 
-export default function LoginPage() {
+export default function RegisterPage() {
   const router = useRouter();
 
   const [toast, setToast] = useState({ show: false, message: "", icon: "✨" });
   const [user, setUser] = useState(null);
-  const [checking, setChecking] = useState(true);
 
   function showToast(message, icon = "✨") {
     setToast({ show: true, message, icon });
@@ -547,180 +537,97 @@ export default function LoginPage() {
     const saved = localStorage.getItem("currentUser");
     if (saved) {
       try {
-        const parsed = JSON.parse(saved);
-        setUser(parsed);
-        router.replace("/courses");
-        return;
-      } catch (e) {
-        localStorage.removeItem("currentUser");
-      }
+        setUser(JSON.parse(saved));
+      } catch (e) {}
     }
-    setChecking(false);
   }, []);
 
   function handleLogout() {
     localStorage.removeItem("currentUser");
-    document.cookie = "currentUser=; path=/; max-age=0";
     setUser(null);
     showToast("تم تسجيل الخروج بنجاح", "👋");
   }
 
-  // بيانات تسجيل الدخول العادي
-  const [phone, setPhone] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [middleName, setMiddleName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [nationalID, setNationalID] = useState("");
+  const [studentPhone, setStudentPhone] = useState("");
+  const [fatherPhone, setFatherPhone] = useState("");
+  const [motherPhone, setMotherPhone] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-
-  // حالات تدفق "نسيت كلمة السر": login -> forgot-phone -> forgot-otp -> forgot-reset
-  const [mode, setMode] = useState("login");
-  const [resetPhone, setResetPhone] = useState("");
-  const [otp, setOtp] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmNewPassword, setConfirmNewPassword] = useState("");
-  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const confirmationResultRef = useRef(null);
-  const recaptchaVerifierRef = useRef(null);
-
-  // ----- تسجيل الدخول العادي -----
-  async function handleLogin(e) {
+  async function handleRegister(e) {
     e.preventDefault();
-    try {
-      const userRef = doc(db, "students", phone.trim());
-      const userSnap = await getDoc(userRef);
 
-      if (!userSnap.exists()) {
-        showToast("هذا الرقم غير مسجل لدينا.", "❌");
-        return;
-      }
+    const fullCombineName = `${firstName.trim()} ${middleName.trim()} ${lastName.trim()}`;
 
-      const userData = userSnap.data();
-
-      // ✅ بنعمل hash لكلمة السر المُدخلة ونقارنها بالـ hash المحفوظ
-      const hashRes = await fetch("/api/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
-      });
-      const { hashedPassword } = await hashRes.json();
-
-      if (userData.password !== hashedPassword) {
-        showToast("كلمة السر التي أدخلتها غير صحيحة.", "❌");
-        return;
-      }
-
-      const userObj = {
-        phone: phone.trim(),
-        firstName: userData.firstName,
-        fullName: userData.fullName,
-        studentPhone: phone.trim(),
-        fatherPhone: userData.fatherPhone || "",
-        motherPhone: userData.motherPhone || "",
-        nationalID: userData.nationalID || "",
-      };
-      localStorage.setItem("currentUser", JSON.stringify(userObj));
-      // ✅ cookie بدون Secure في dev — في production لازم تضيف Secure
-      // الـ HttpOnly مش ممكن من client-side JavaScript — اتعمل في الـ middleware
-      document.cookie = `currentUser=${encodeURIComponent(JSON.stringify(userObj))}; path=/; max-age=2592000; SameSite=Lax`;
-      setUser(userObj);
-
-      showToast("مرحباً بك مجدداً يا بطل ⚡", "🔓");
-      setTimeout(() => router.push("/courses"), 1000);
-    } catch (error) {
-      console.error("Error: ", error);
-      showToast("حدث خطأ أثناء جلب البيانات.", "❌");
+    if (nationalID.trim().length !== 14) {
+      showToast("الرقم القومي يجب أن يتكون من 14 رقم!", "⚠️");
+      return;
     }
-  }
 
-  // ----- الخطوة 1: إرسال كود التحقق برسالة SMS حقيقية -----
-  async function handleSendCode(e) {
-    e.preventDefault();
-    if (!resetPhone.trim()) return;
+    if (password !== confirmPassword) {
+      showToast("عذرًا، كلمتا السر غير متطابقتين!", "⚠️");
+      return;
+    }
+
     setLoading(true);
     try {
-      const userRef = doc(db, "students", resetPhone.trim());
+      // الفحص الذكي: التأكد إذا كان رقم التلفون مسجل من قبل أم لا
+      // بما أن الـ document ID هو رقم الهاتف نفسه، يستحيل تسجيل نفس الرقم مرتين
+      const userRef = doc(db, "students", studentPhone.trim());
       const userSnap = await getDoc(userRef);
 
-      if (!userSnap.exists()) {
-        showToast("هذا الرقم غير مسجل لدينا.", "❌");
+      if (userSnap.exists()) {
+        showToast("رقم التلفون مسجل قبل كدا!", "⚠️");
         setLoading(false);
         return;
       }
 
-      if (!recaptchaVerifierRef.current) {
-        recaptchaVerifierRef.current = new RecaptchaVerifier(auth, "recaptcha-container", {
-          size: "invisible",
-        });
+      // ✅ بنبعت كلمة السر للـ API عشان يعمل لها Hash قبل الحفظ
+      const hashRes = await fetch("/api/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          firstName: firstName.trim(),
+          middleName: middleName.trim(),
+          lastName: lastName.trim(),
+          fullName: fullCombineName,
+          nationalID: nationalID.trim(),
+          studentPhone: studentPhone.trim(),
+          fatherPhone: fatherPhone.trim(),
+          motherPhone: motherPhone.trim(),
+          password: password,
+        }),
+      });
+
+      if (!hashRes.ok) {
+        const err = await hashRes.json();
+        showToast(err.error || "حدث خطأ في التسجيل", "❌");
+        setLoading(false);
+        return;
       }
 
-      const formattedPhone = toE164(resetPhone.trim());
-      const confirmationResult = await signInWithPhoneNumber(
-        auth,
-        formattedPhone,
-        recaptchaVerifierRef.current
-      );
-      confirmationResultRef.current = confirmationResult;
+      const safeData = await hashRes.json();
 
-      showToast("تم إرسال كود التحقق برسالة على رقمك 📩", "📩");
-      setMode("forgot-otp");
+      await setDoc(userRef, {
+        ...safeData,
+        createdAt: new Date().toISOString(),
+      });
+
+      showToast("تم تسجيل بياناتك في المنصة ✨", "🎉");
+      setTimeout(() => router.push("/login"), 1500);
     } catch (error) {
       console.error("Error: ", error);
-      showToast("تعذر إرسال الكود، حاول مرة أخرى.", "❌");
+      showToast("حدث خطأ في الاتصال بقاعدة البيانات.", "❌");
     } finally {
       setLoading(false);
     }
-  }
-
-  // ----- الخطوة 2: تأكيد الكود -----
-  async function handleVerifyCode(e) {
-    e.preventDefault();
-    if (!otp.trim()) return;
-    setLoading(true);
-    try {
-      await confirmationResultRef.current.confirm(otp.trim());
-      showToast("تم تأكيد الكود بنجاح ✅", "✅");
-      setMode("forgot-reset");
-    } catch (error) {
-      console.error("Error: ", error);
-      showToast("الكود غير صحيح، حاول مرة أخرى.", "❌");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // ----- الخطوة 3: تعيين كلمة سر جديدة -----
-  async function handleResetPassword(e) {
-    e.preventDefault();
-    if (newPassword !== confirmNewPassword) {
-      showToast("عذرًا، كلمتا السر غير متطابقتين!", "⚠️");
-      return;
-    }
-    setLoading(true);
-    try {
-      const userRef = doc(db, "students", resetPhone.trim());
-      await updateDoc(userRef, { password: newPassword });
-
-      showToast("تم تغيير كلمة السر بنجاح 🎉", "🎉");
-      setMode("login");
-      setResetPhone("");
-      setOtp("");
-      setNewPassword("");
-      setConfirmNewPassword("");
-    } catch (error) {
-      console.error("Error: ", error);
-      showToast("حدث خطأ أثناء تغيير كلمة السر.", "❌");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  if (checking) {
-    return (
-      <div style={{ minHeight: "100vh", background: "#050505", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ width: "40px", height: "40px", border: "3px solid rgba(0,255,179,0.2)", borderTop: "3px solid #00FFB3", borderRadius: "50%", animation: "spin 0.8s linear infinite" }}></div>
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-      </div>
-    );
   }
 
   return (
@@ -738,186 +645,143 @@ export default function LoginPage() {
       <Nav user={user} onLogout={handleLogout} />
 
       <div className="auth-page-wrapper">
-        <div className="auth-card auth-card-small">
-          {mode === "login" && (
-            <>
-              <div className="auth-header">
-                <h2 style={{ color: "white" }}>تسجيل الدخول</h2>
-                <p>مرحباً بك في عيادة الـ Biology المتطورة</p>
-              </div>
+        <div className="auth-card">
+          <div className="auth-header">
+            <h2 style={{ color: "white" }}>إنشاء حساب جديد</h2>
+            <p>منصة هتحببك في الأحياء مع د. أحمد تمام 🧬</p>
+          </div>
 
-              <form onSubmit={handleLogin}>
-                <div className="form-group">
-                  <label>
-                    رقم الهاتف <span>*</span>
-                  </label>
+          <form onSubmit={handleRegister}>
+            <div className="form-grid-three">
+              <div className="form-group">
+                <label>
+                  الاسم الأول <span>*</span>
+                </label>
+                <input type="text" required placeholder="مثال: أحمد" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label>
+                  اسم الأب <span>*</span>
+                </label>
+                <input type="text" required placeholder="مثال: محمد" value={middleName} onChange={(e) => setMiddleName(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label>
+                  اسم الجد <span>*</span>
+                </label>
+                <input type="text" required placeholder="مثال: علي" value={lastName} onChange={(e) => setLastName(e.target.value)} />
+              </div>
+            </div>
+
+            <div className="form-grid">
+              <div className="form-group">
+                <label>
+                  الرقم القومي (14 رقم) <span>*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  maxLength={14}
+                  pattern="\d{14}"
+                  placeholder="2990101xxxxxxxx"
+                  style={{ direction: "ltr", textAlign: "right" }}
+                  value={nationalID}
+                  onChange={(e) => setNationalID(e.target.value)}
+                />
+              </div>
+              <div className="form-group">
+                <label>
+                  رقم هاتف الطالب <span>*</span>
+                </label>
+                <input
+                  type="tel"
+                  required
+                  placeholder="01xxxxxxxxx"
+                  style={{ direction: "ltr", textAlign: "right" }}
+                  value={studentPhone}
+                  onChange={(e) => setStudentPhone(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="form-grid">
+              <div className="form-group">
+                <label>
+                  رقم ولي الأمر (الأب) <span>*</span>
+                </label>
+                <input
+                  type="tel"
+                  required
+                  placeholder="01xxxxxxxxx"
+                  style={{ direction: "ltr", textAlign: "right" }}
+                  value={fatherPhone}
+                  onChange={(e) => setFatherPhone(e.target.value)}
+                />
+              </div>
+              <div className="form-group">
+                <label>رقم ولي الأمر (الأم)</label>
+                <input
+                  type="tel"
+                  placeholder="01xxxxxxxxx (اختياري)"
+                  style={{ direction: "ltr", textAlign: "right" }}
+                  value={motherPhone}
+                  onChange={(e) => setMotherPhone(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="form-grid">
+              <div className="form-group">
+                <label>
+                  كلمة السر <span>*</span>
+                </label>
+                <div className="password-input-container">
                   <input
-                    type="tel"
-                    required
-                    placeholder="01xxxxxxxxx"
-                    style={{ direction: "ltr", textAlign: "right" }}
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label>
-                    كلمة السر <span>*</span>
-                  </label>
-                  <div className="password-input-container">
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      required
-                      placeholder="••••••••"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                    />
-                    <button type="button" className="toggle-password-btn" onClick={() => setShowPassword((s) => !s)}>
-                      {showPassword ? <EyeOffIcon /> : <EyeIcon />}
-                    </button>
-                  </div>
-                </div>
-
-                <div style={{ textAlign: "left", marginTop: "-0.6rem", marginBottom: "1.2rem" }}>
-                  <span
-                    style={{ color: "var(--teal)", fontSize: "0.85rem", cursor: "pointer", fontWeight: 700 }}
-                    onClick={() => setMode("forgot-phone")}
-                  >
-                    نسيت كلمة السر؟
-                  </span>
-                </div>
-
-                <button type="submit" className="btn-submit-form">
-                  دخول إلى المنصة ⚡
-                </button>
-              </form>
-
-              <div className="auth-switch-text">
-                مشترك جديد؟{" "}
-                <Link href="/register">
-                  <span>أنشئ حسابك من هنا</span>
-                </Link>
-              </div>
-            </>
-          )}
-
-          {mode === "forgot-phone" && (
-            <>
-              <div className="auth-header">
-                <h2 style={{ color: "white" }}>نسيت كلمة السر</h2>
-                <p>أدخل رقم هاتفك المسجل لإرسال كود التحقق برسالة نصية</p>
-              </div>
-
-              <form onSubmit={handleSendCode}>
-                <div className="form-group">
-                  <label>
-                    رقم الهاتف <span>*</span>
-                  </label>
-                  <input
-                    type="tel"
-                    required
-                    placeholder="01xxxxxxxxx"
-                    style={{ direction: "ltr", textAlign: "right" }}
-                    value={resetPhone}
-                    onChange={(e) => setResetPhone(e.target.value)}
-                  />
-                </div>
-
-                <button type="submit" className="btn-submit-form" disabled={loading}>
-                  {loading ? "جاري الإرسال..." : "إرسال كود التحقق 📩"}
-                </button>
-              </form>
-
-              <div className="auth-switch-text">
-                <span onClick={() => setMode("login")}>الرجوع لتسجيل الدخول</span>
-              </div>
-            </>
-          )}
-
-          {mode === "forgot-otp" && (
-            <>
-              <div className="auth-header">
-                <h2 style={{ color: "white" }}>أدخل كود التحقق</h2>
-                <p>تم إرسال رسالة نصية تحتوي على الكود إلى رقمك</p>
-              </div>
-
-              <form onSubmit={handleVerifyCode}>
-                <div className="form-group">
-                  <label>
-                    الكود <span>*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="------"
-                    style={{ direction: "ltr", textAlign: "center" }}
-                    value={otp}
-                    onChange={(e) => setOtp(e.target.value)}
-                  />
-                </div>
-
-                <button type="submit" className="btn-submit-form" disabled={loading}>
-                  {loading ? "جاري التحقق..." : "تأكيد الكود ✅"}
-                </button>
-              </form>
-
-              <div className="auth-switch-text">
-                <span onClick={() => setMode("forgot-phone")}>إرسال الكود مرة أخرى</span>
-              </div>
-            </>
-          )}
-
-          {mode === "forgot-reset" && (
-            <>
-              <div className="auth-header">
-                <h2 style={{ color: "white" }}>تعيين كلمة سر جديدة</h2>
-                <p>اختر كلمة سر جديدة لحسابك</p>
-              </div>
-
-              <form onSubmit={handleResetPassword}>
-                <div className="form-group">
-                  <label>
-                    كلمة السر الجديدة <span>*</span>
-                  </label>
-                  <div className="password-input-container">
-                    <input
-                      type={showNewPassword ? "text" : "password"}
-                      required
-                      placeholder="••••••••"
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                    />
-                    <button
-                      type="button"
-                      className="toggle-password-btn"
-                      onClick={() => setShowNewPassword((s) => !s)}
-                    >
-                      {showNewPassword ? <EyeOffIcon /> : <EyeIcon />}
-                    </button>
-                  </div>
-                </div>
-                <div className="form-group">
-                  <label>
-                    تأكيد كلمة السر <span>*</span>
-                  </label>
-                  <input
-                    type={showNewPassword ? "text" : "password"}
+                    type={showPassword ? "text" : "password"}
                     required
                     placeholder="••••••••"
-                    value={confirmNewPassword}
-                    onChange={(e) => setConfirmNewPassword(e.target.value)}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
                   />
+                  <button type="button" className="toggle-password-btn" onClick={() => setShowPassword((s) => !s)}>
+                    {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+                  </button>
                 </div>
+              </div>
+              <div className="form-group">
+                <label>
+                  تأكيد كلمة السر <span>*</span>
+                </label>
+                <div className="password-input-container">
+                  <input
+                    type={showConfirmPassword ? "text" : "password"}
+                    required
+                    placeholder="••••••••"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="toggle-password-btn"
+                    onClick={() => setShowConfirmPassword((s) => !s)}
+                  >
+                    {showConfirmPassword ? <EyeOffIcon /> : <EyeIcon />}
+                  </button>
+                </div>
+              </div>
+            </div>
 
-                <button type="submit" className="btn-submit-form" disabled={loading}>
-                  {loading ? "جاري الحفظ..." : "تغيير كلمة السر 🎉"}
-                </button>
-              </form>
-            </>
-          )}
+            <button type="submit" className="btn-submit-form" disabled={loading}>
+              {loading ? "جاري الإنشاء..." : "تأكيد وإنشاء الحساب 🚀"}
+            </button>
+          </form>
 
-          <div id="recaptcha-container"></div>
+          <div className="auth-switch-text">
+            لديك حساب بالفعل؟{" "}
+            <Link href="/login">
+              <span>سجل دخولك هنا</span>
+            </Link>
+          </div>
         </div>
       </div>
 
