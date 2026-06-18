@@ -3,6 +3,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { useRouter } from "next/navigation";
 import { db } from "@/lib/firebase";
 import { collection, addDoc, doc, getDoc, updateDoc, arrayUnion } from "firebase/firestore";
 
@@ -37,8 +38,15 @@ export default function CoursesPage() {
     });
   };
 
+  const router = useRouter();
   const toggleSidebar = () => setSidebarActive(s => !s);
   const switchSection = (id) => { setActiveSection(id); setSidebarActive(false); };
+
+  const handleLogout = () => {
+    localStorage.removeItem("currentUser");
+    document.cookie = "currentUser=; path=/; max-age=0";
+    router.replace("/");
+  };
 
   const openPaymentModal = (courseName, courseId) => {
     setModalCourseTitle(`الاشتراك في: ${courseName}`);
@@ -162,7 +170,7 @@ export default function CoursesPage() {
         .menu-toggle-btn span { display: block; width: 20px; height: 2.5px; background-color: #000; border-radius: 2px; }
         .sidebar-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); z-index: 1999; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
         .sidebar-overlay.active { opacity: 1; pointer-events: auto; }
-        .sidebar { position: fixed; top: 0; right: -320px; width: 300px; height: 100%; background: var(--card-bg); border-left: 1px solid var(--input-border); box-shadow: -10px 0 40px rgba(0,0,0,0.5); z-index: 2000; transition: right 0.3s cubic-bezier(0.77, 0, 0.175, 1); padding: 2rem 1.5rem; display: flex; flex-direction: column; }
+        .sidebar { position: fixed; top: 0; right: -320px; width: 300px; height: 100%; background: var(--card-bg); border-left: 1px solid var(--input-border); box-shadow: -10px 0 40px rgba(0,0,0,0.5); z-index: 2000; transition: right 0.3s cubic-bezier(0.77, 0, 0.175, 1); padding: 2rem 1.5rem; display: flex; flex-direction: column; overflow-y: auto; }
         .sidebar.active { right: 0; }
         .sidebar-welcome { padding-bottom: 1.5rem; border-bottom: 1px solid var(--input-border); margin-bottom: 2rem; }
         .sidebar-welcome .welcome-title { font-size: 0.85rem; color: var(--text-muted); font-weight: 600; }
@@ -237,9 +245,12 @@ export default function CoursesPage() {
 
       <div className={`sidebar-overlay ${sidebarActive ? "active" : ""}`} onClick={toggleSidebar}/>
       <aside className={`sidebar ${sidebarActive ? "active" : ""}`}>
-        <div className="sidebar-welcome">
-          <div className="welcome-title">أهلاً بك في منصتنا</div>
-          <div className="student-name">{displayName}</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", paddingBottom: "1.5rem", borderBottom: "1px solid var(--input-border)", marginBottom: "2rem" }}>
+          <div>
+            <div className="welcome-title">أهلاً بك في منصتنا</div>
+            <div className="student-name">{displayName}</div>
+          </div>
+          <button onClick={toggleSidebar} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#fff", width: "36px", height: "36px", borderRadius: "10px", cursor: "pointer", fontSize: "1.1rem", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>✕</button>
         </div>
         <ul className="sidebar-menu">
           {[["dashboard","لوحة التحكم"],["support","الدعم الفني"],["stats","إحصائيات الطالب"],["settings","إعدادات الطالب"]].map(([id, label]) => (
@@ -248,6 +259,9 @@ export default function CoursesPage() {
             </li>
           ))}
         </ul>
+        <button onClick={handleLogout} style={{ marginTop: "auto", width: "100%", background: "rgba(255,77,109,0.1)", border: "1px solid rgba(255,77,109,0.3)", color: "#ff4d6d", padding: "0.9rem", borderRadius: "12px", fontFamily: "Cairo, sans-serif", fontWeight: 700, fontSize: "1rem", cursor: "pointer" }}>
+          تسجيل الخروج 👋
+        </button>
       </aside>
 
       <main className="main-container">
