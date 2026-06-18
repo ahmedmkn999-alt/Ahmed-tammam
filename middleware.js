@@ -1,32 +1,9 @@
-// middleware.js
 import { NextResponse } from "next/server";
 
 const PROTECTED_ROUTES = ["/courses", "/lectures"];
 const ADMIN_ROUTE = "/admin";
 const AUTH_ROUTES = ["/login", "/register"];
 const BLOCKED_IPS = [];
-
-// Rate limiting store (in-memory, resets on cold start — كافي لـ Edge middleware)
-const loginAttempts = new Map();
-const MAX_ATTEMPTS = 5;
-const WINDOW_MS = 15 * 60 * 1000; // 15 دقيقة
-
-function checkRateLimit(ip) {
-  const now = Date.now();
-  const entry = loginAttempts.get(ip);
-
-  if (!entry || now - entry.firstAttempt > WINDOW_MS) {
-    loginAttempts.set(ip, { count: 1, firstAttempt: now });
-    return false; // مش محظور
-  }
-
-  entry.count++;
-  if (entry.count > MAX_ATTEMPTS) {
-    return true; // محظور
-  }
-
-  return false;
-}
 
 export function middleware(request) {
   const { pathname, url } = request.nextUrl;
@@ -39,16 +16,6 @@ export function middleware(request) {
 
   if (BLOCKED_IPS.includes(ip)) {
     return new NextResponse("Access Denied", { status: 403 });
-  }
-
-  // ===== طبقة 1.5: Rate Limiting على صفحة Login =====
-  if (pathname.startsWith("/login") && request.method === "POST") {
-    if (checkRateLimit(ip)) {
-      return new NextResponse(
-        JSON.stringify({ error: "Too many login attempts. Try again in 15 minutes." }),
-        { status: 429, headers: { "Content-Type": "application/json" } }
-      );
-    }
   }
 
   // ===== طبقة 2: Security Headers =====
@@ -86,13 +53,7 @@ export function middleware(request) {
   }
 
   // ===== طبقة 4: Admin Route Protection =====
-  // صفحة /admin → ترفض أي طلب من غير server-side check
-  // الحماية الحقيقية هي إن الـ ADMIN_PASSWORD مش NEXT_PUBLIC
   if (pathname.startsWith(ADMIN_ROUTE)) {
-    // بنتأكد إن الطلب جاي من نفس الـ origin (مش direct URL access بدون cookie)
-    const adminSession = request.cookies.get("admin_session")?.value;
-    // لو مفيش admin session cookie، نسمح بالدخول للصفحة بس الـ JS هو اللي بيتحكم
-    // (الـ server-side check الحقيقي في API route منفصل)
     return response;
   }
 
