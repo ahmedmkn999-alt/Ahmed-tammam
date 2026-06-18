@@ -1,10 +1,22 @@
 // app/api/session/route.js
-// ✅ بيستخدم Firebase REST API مباشرة — مش محتاج firebase-admin
 export const runtime = "nodejs";
 import { NextResponse } from "next/server";
+import { initializeApp, getApps, cert } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
 
-const PROJECT_ID = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
-const FIRESTORE_URL = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents/sessions`;
+// ✅ Firebase Admin SDK — أكثر موثوقية من REST API
+function getAdminDb() {
+  if (!getApps().length) {
+    initializeApp({
+      credential: cert({
+        projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+      }),
+    });
+  }
+  return getFirestore();
+}
 
 // POST: تسجيل جلسة جديدة عند Login
 export async function POST(request) {
@@ -14,21 +26,15 @@ export async function POST(request) {
       return NextResponse.json({ error: "Missing data" }, { status: 400 });
     }
 
-    const url = `${FIRESTORE_URL}/${encodeURIComponent(phone)}`;
-    await fetch(url, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        fields: {
-          sessionId: { stringValue: sessionId },
-          loginAt: { stringValue: new Date().toISOString() },
-        },
-      }),
+    const db = getAdminDb();
+    await db.collection("sessions").doc(phone).set({
+      sessionId,
+      loginAt: new Date().toISOString(),
     });
 
     return NextResponse.json({ success: true });
   } catch (e) {
-    console.error(e);
+    console.error("SESSION POST ERROR:", e);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }
@@ -39,23 +45,28 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url);
     const phone = searchParams.get("phone");
     const sessionId = searchParams.get("sessionId");
+
     if (!phone || !sessionId) {
-      return NextResponse.json({ valid: false }, { status: 400 });
+      // ✅ لو بيانات ناقصة — مش بنطرد، بنقول valid عشان نتجنب false positive
+      return NextResponse.json({ valid: true });
     }
 
-    const url = `${FIRESTORE_URL}/${encodeURIComponent(phone)}`;
-    const res = await fetch(url);
+    const db = getAdminDb();
+    const docSnap = await db.collection("sessions").doc(phone).get();
 
-    if (!res.ok) {
-      return NextResponse.json({ valid: false });
+    // ✅ لو مفيش document — ممكن تم مسحه أو مش موجود أصلاً، مش بنطرد
+    if (!docSnap.exists) {
+      return NextResponse.json({ valid: true });
     }
 
-    const data = await res.json();
-    const storedSessionId = data?.fields?.sessionId?.stringValue;
+    const storedSessionId = docSnap.data()?.sessionId;
+
+    // ✅ بنطرد بس لو في sessionId مختلف بالتأكيد
     return NextResponse.json({ valid: storedSessionId === sessionId });
   } catch (e) {
-    console.error(e);
-    return NextResponse.json({ valid: false }, { status: 500 });
+    console.error("SESSION GET ERROR:", e);
+    // ✅ أي error = نقول valid عشان نحمي المستخدم من طرد غلط
+    return NextResponse.json({ valid: true });
   }
 }
 
@@ -64,12 +75,11 @@ export async function DELETE(request) {
   try {
     const { phone } = await request.json();
     if (phone) {
-      const url = `${FIRESTORE_URL}/${encodeURIComponent(phone)}`;
-      await fetch(url, { method: "DELETE" });
+      const db = getAdminDb();
+      await db.collection("sessions").doc(phone).delete();
     }
     return NextResponse.json({ success: true });
   } catch {
     return NextResponse.json({ success: false }, { status: 500 });
   }
-  }
-    
+}
